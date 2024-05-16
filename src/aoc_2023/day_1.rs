@@ -77,21 +77,19 @@ fn match_digit(spelled: &str) -> Option<&'static str> {
 
 #[cfg(test)]
 mod test {
-    use crate::aoc_2023::day_1::day_1_part_2;
-
-    use super::day_1_part_1;
+    use super::{day_1_part_1, day_1_part_2};
 
     #[test]
     fn test_day_1_part_1() {
         let data = include_str!("../../data/aoc_2023/day_1.txt");
         let solution = day_1_part_1(data);
-        println!("1.1: {solution}");
+        println!("2023.1.1: {solution}");
     }
 
     #[test]
     fn test_day_1_part_2() {
         let data = include_str!("../../data/aoc_2023/day_1.txt");
         let solution = day_1_part_2(data);
-        println!("1.2: {solution}");
+        println!("2023.1.2: {solution}");
     }
 }
