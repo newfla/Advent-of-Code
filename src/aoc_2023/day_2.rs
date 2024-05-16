@@ -43,7 +43,7 @@ fn day_2_part_1(data: &str, condition: Subset) -> u32 {
 
 #[allow(dead_code)]
 fn day_2_part_2(data: &str) -> u32 {
-    data.lines()
+    data.par_lines()
         .map(|line| {
             let mut max_set = Subset::default();
             for set in ugly_game_parser(line).subsets {
