@@ -1,16 +1,22 @@
-use std::ops::Range;
+use std::{
+    collections::VecDeque,
+    ops::Range,
+};
 
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+use rayon::iter::{
+    IntoParallelIterator, IntoParallelRefIterator, ParallelBridge, ParallelIterator,
+};
 use regex::Regex;
 
 #[derive(Default, Debug)]
 struct Mapping {
-    source: Range<usize>,
-    destination: Range<usize>,
+    source: u32,
+    source_range: Range<usize>,
+    destination: u32,
 }
 #[derive(Default, Debug)]
 struct GlobalMap {
-    seeds: Vec<usize>,
+    seeds: Vec<u32>,
     seed_to_soil: Vec<Mapping>,
     soil_to_fertilizer: Vec<Mapping>,
     fertilizer_to_water: Vec<Mapping>,
@@ -21,60 +27,74 @@ struct GlobalMap {
 }
 
 impl GlobalMap {
-    fn lowest_location(&self) -> usize {
+    fn lowest_location(&self) -> u32 {
         self.seeds
             .par_iter()
-            .map(|seed| {
-                let soil = Self::find_in_range(*seed, &self.seed_to_soil);
-                let fertilizer = Self::find_in_range(soil, &self.soil_to_fertilizer);
-                let water = Self::find_in_range(fertilizer, &self.fertilizer_to_water);
-                let light = Self::find_in_range(water, &self.water_to_light);
-                let temperature = Self::find_in_range(light, &self.light_to_temperature);
-                let humidity = Self::find_in_range(temperature, &self.temperature_to_humidity);
-                Self::find_in_range(humidity, &self.humidity_to_location)
+            .map(|seed| self.location(*seed))
+            .min()
+            .unwrap()
+    }
+
+    fn location(&self, seed: u32) -> u32 {
+        let soil = Self::find_in_range(seed, &self.seed_to_soil);
+        let fertilizer = Self::find_in_range(soil, &self.soil_to_fertilizer);
+        let water = Self::find_in_range(fertilizer, &self.fertilizer_to_water);
+        let light = Self::find_in_range(water, &self.water_to_light);
+        let temperature = Self::find_in_range(light, &self.light_to_temperature);
+        let humidity = Self::find_in_range(temperature, &self.temperature_to_humidity);
+        Self::find_in_range(humidity, &self.humidity_to_location)
+    }
+
+    fn lowest_location_expand(&self) -> u32 {
+        let seeds = self.expand_seeds();
+        seeds
+            .into_par_iter()
+            .map(|range| {
+                for seed in range {
+                    self.location(seed);
+                }
+                1
             })
             .min()
             .unwrap()
     }
 
-    fn expand_seeds(&mut self) {
-        let start= self.seeds.iter().step_by(2);
-        let mut end = self.seeds.iter();
+    fn expand_seeds(&self) -> Vec<Range<u32>> {
+        let mut cloned_seeds: VecDeque<u32> = self.seeds.clone().into();
+        cloned_seeds.push_front(0);
+        let mut end = cloned_seeds.into_iter().step_by(2);
         end.next();
-        self.seeds = start.zip(end.step_by(2)).map(|(x,y)| {println!{"start{x} end{y}"}(*x..*y).collect::<Vec<_>>()}
-    ).flatten().collect();
+
+        self.seeds
+            .iter()
+            .step_by(2)
+            .zip(end)
+            .par_bridge()
+            .map(|(x, y)| (*x..*x + y))
+            .collect()
     }
 
-    fn find_in_range(source: usize, mapping: &Vec<Mapping>) -> usize {
+    fn find_in_range(source: u32, mapping: &Vec<Mapping>) -> u32 {
         mapping
             .par_iter()
-            .filter(|mapping| mapping.source.contains(&source))
-            .min_by(|x, y| {
-                x.destination
-                    .clone()
-                    .min()
-                    .unwrap()
-                    .cmp(&y.destination.clone().min().unwrap())
-            })
+            .filter(|mapping| mapping.source_range.contains(&(source as usize)))
+            .min_by(|x, y| x.destination.cmp(&y.destination))
             .map(|mapping| {
-                let step = source - mapping.source.clone().min().unwrap();
-                mapping.destination.clone().min().unwrap() + step
+                let step = source - mapping.source;
+                mapping.destination + step
             })
             .unwrap_or(source)
     }
 }
 
-fn parse_global_map(data: &str, seed_range: bool) -> GlobalMap {
+fn parse_global_map(data: &str) -> GlobalMap {
     let mut map = GlobalMap::default();
     let re = Regex::new(r"\d+").unwrap();
     map.seeds = re
         .find_iter(data.lines().next().unwrap())
-        .map(|val| val.as_str().parse::<usize>().unwrap())
+        .map(|val| val.as_str().parse::<u32>().unwrap())
         .collect();
 
-    if seed_range {
-        map.expand_seeds();
-    }
     map.seed_to_soil = parse_range(&re, data, find_header(data, "seed-to-soil"));
     map.soil_to_fertilizer = parse_range(&re, data, find_header(data, "soil-to-fertilizer"));
     map.fertilizer_to_water = parse_range(&re, data, find_header(data, "fertilizer-to-water"));
@@ -90,10 +110,8 @@ fn parse_global_map(data: &str, seed_range: bool) -> GlobalMap {
 fn find_header(data: &str, hint: &str) -> usize {
     data.lines()
         .enumerate()
-        .find(|(_, line)| line.contains(hint))
+        .find_map(|(id, line)| line.contains(hint).then(||id+1))
         .unwrap()
-        .0
-        + 1
 }
 
 fn parse_range(regex: &Regex, data: &str, start: usize) -> Vec<Mapping> {
@@ -105,25 +123,25 @@ fn parse_range(regex: &Regex, data: &str, start: usize) -> Vec<Mapping> {
         .map(|line| {
             let numbers = regex
                 .find_iter(line)
-                .map(|val| val.as_str().parse::<usize>().unwrap())
+                .map(|val| val.as_str().parse::<u32>().unwrap())
                 .collect::<Vec<_>>();
             Mapping {
-                source: numbers[1]..numbers[1] + numbers[2],
-                destination: numbers[0]..numbers[0] + numbers[2],
+                source: numbers[1],
+                source_range: numbers[1] as usize..numbers[1] as usize + numbers[2] as usize,
+                destination: numbers[0],
             }
         })
         .collect()
 }
 
 #[allow(dead_code)]
-fn day_5_part_1(data: &str) -> usize {
-    parse_global_map(data, false).lowest_location()
+fn day_5_part_1(data: &str) -> u32 {
+    parse_global_map(data).lowest_location()
 }
 
 #[allow(dead_code)]
-fn day_5_part_2(data: &str) -> usize {
-    parse_global_map(data, true).lowest_location()
-
+fn day_5_part_2(data: &str) -> u32 {
+    parse_global_map(data).lowest_location_expand()
 }
 
 #[cfg(test)]
