@@ -1,10 +1,7 @@
-use std::{
-    collections::VecDeque,
-    ops::Range,
-};
+use std::{collections::VecDeque, ops::Range};
 
 use rayon::iter::{
-    IntoParallelIterator, IntoParallelRefIterator, ParallelBridge, ParallelIterator,
+    IntoParallelRefIterator, ParallelBridge, ParallelIterator,
 };
 use regex::Regex;
 
@@ -48,12 +45,16 @@ impl GlobalMap {
     fn lowest_location_expand(&self) -> u32 {
         let seeds = self.expand_seeds();
         seeds
-            .into_par_iter()
+            .into_iter()
             .map(|range| {
+                let mut min = u32::MAX;
                 for seed in range {
-                    self.location(seed);
+                    let loc = self.location(seed);
+                    if loc < min {
+                        min = loc;
+                    }
                 }
-                1
+                min
             })
             .min()
             .unwrap()
@@ -110,7 +111,7 @@ fn parse_global_map(data: &str) -> GlobalMap {
 fn find_header(data: &str, hint: &str) -> usize {
     data.lines()
         .enumerate()
-        .find_map(|(id, line)| line.contains(hint).then(||id+1))
+        .find_map(|(id, line)| line.contains(hint).then(|| id + 1))
         .unwrap()
 }
 
